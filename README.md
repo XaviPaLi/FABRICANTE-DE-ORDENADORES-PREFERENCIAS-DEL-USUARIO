@@ -1,0 +1,2 @@
+# FABRICANTE-DE-ORDENADORES-PREFERENCIAS-DEL-USUARIO
+El equipo de ventas ha contratado una empresa para estudiar el mercado. Esta ha realizado una encuesta a nuestros clientes con el objetivo de averiguar qué marca de ordenadores prefiere, con el objetivo de saber con qué fabricante nos interesa más entablar una relación más profunda.  Sin embargo, las respuestas no se tomaron correctamente para todos los encuestados y es aquí donde entra en juego el análisis que se presenta en este informe.
