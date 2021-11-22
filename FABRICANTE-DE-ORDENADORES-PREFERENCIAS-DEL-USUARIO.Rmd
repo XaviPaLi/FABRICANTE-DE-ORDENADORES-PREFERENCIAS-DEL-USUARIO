@@ -1,0 +1,1367 @@
+---
+title: "FABRICANTE DE ORDENADORES: PREFERENCIAS DEL USUARIO"
+author: "Javier Paneque Linares"
+date: "23/11/2021"
+output: 
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_depth: 5
+    theme: united
+    fig_caption: true
+    number_sections: true
+    global_numbering: true
+toc-title: "ÍNDICE"
+---
+
+```{r include=FALSE}
+#Se cargan las librerías necesarias
+library('bookdown')
+library('dplyr')
+library('readr')
+library('knitr')
+library('ggplot2')
+library('lattice')
+library('plyr')
+library('tidyr')
+library('kableExtra')
+library("gvlma")
+library('gridExtra')
+library('caTools')
+library('caret')
+library('DataCombine')
+library('corrplot')
+library('Hmisc')
+library('randomForest')
+library('C50')
+library('e1071')
+library('kernlab')
+library('gbm')
+library('magrittr')
+library('MASS')
+library('partykit')
+library('rpart.plot')
+library('kknn')
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+# CONOCIMIENTO DEL PROBLEMA
+
+El equipo de ventas ha contratado una empresa para estudiar el mercado. Esta ha realizado una encuesta a nuestros clientes con el objetivo de averiguar qué marca de ordenadores prefiere, con el objetivo de saber con qué fabricante nos interesa más entablar una relación más profunda.
+
+Sin embargo, las respuestas no se tomaron correctamente para todos los encuestados y es aquí donde entra en juego el análisis que se presenta en este informe.
+
+Se deben predecir las respuestas faltantes de la encuesta en base a las que sí tenemos rellenadas debidamente y mostrar en qué grado de confianza se realiza dicha predicción.
+
+Para ello utilizaremos dos algoritmos distintos: C5.0 y RandomForest. Los resultados de los modelos se compararán y se escogerá el que nos proporcione unos mejores predicciones para nuestro conjunto de datos.
+
+Las preguntas a las que debemos contestar son:
+
+* ¿Son capaces los modelos de predecir la respuesta del encuestado? Si es así, ¿en qué grado de confianza?
+
+* ¿Cuáles son las razones para que el modelo no tome la decisión correcta? ¿Existe algún patrón entre aquellos encuestados que no somos capaces de predecir? ¿Cuál?
+
+* ¿Alguna de las marcas predomina sobre la otra? ¿Debemos tenerlo en cuenta en nuestro análisis de alguna forma? ¿Debemos priorizar la detección de una marca sobre la otra? 
+
+# RECOLECCIÓN DE LOS DATOS
+
+El estudio de mercado llevado a cabo nos proporciona los datos que necesitamos. Nos adjuntan tres archivos:
+
+* **CompleteResponses.csv**: contiene todas las respuestas a la encuesta. Aprenderemos y contruiremos nuestro modelo a partir de él.
+
+* **SurveyIncomplete.csv**: datos obtenidos de la encuesta incompleta. Nuestro objetivo es completarla.
+
+* **survey_key.csv**: las claves explicativas de cada una de las variables sobre las cuales se pregunta en la encuesta.
+
+## CARGADO DE LOS DATOS 
+
+Se cargan los datos, concretamente los archivos *CompleteResponses.csv* y *SurveyIncomplete.csv*:
+
+```{r}
+#Se cargan los datos
+CR <- read.csv("CompleteResponses.csv")
+SI <- read.csv("SurveyIncomplete.csv")
+#Número de datos que tenemos
+sprintf("Número de encuestados para Respuestas Completas: %s",length(CR[,1]))
+sprintf("Número de encuestados para Encuesta Incompleta: %s",length(SI[,1]))
+```
+
+## DESCRIPCIÓN DE LAS VARIABLES 
+
+Se describen las variables que nos han proporcionado.
+
+* Variables que contiene el conjunto de datos:
+  + **Salario**: Salario del encuestado sin incluir ningún bonus.
+  
+  + **Edad**: Edad del encuestado
+  
+  + **Nivel Educativo**: Estudios de mayor nivel. Se da a escoger entre las siguientes 5 categorías.
+    0. Less than High School (Inferior a Educación Secundaria)
+    1. High School Degree (Educación Secundaria completada)
+    2. Some College (Estudios universitarios no finalizados)
+    3. 4-Year College Degree (Estudios universitarios)
+    4. Master's. Doctoral or Professioonal Degree (Maestría, doctorado o grado profesional)
+    
+  + **Coche**: Marca del coche que tiene el encuestado. Se da un valor numérico correspondiente a la siguiente lista:
+    1.	BMW
+    2.	Buick
+    3.	Cadillac
+    4.	Chevrolet
+    5.	Chrysler
+    6.	Dodge
+    7.	Ford
+    8.	Honda
+    9.	Hyundai
+    10.	Jeep
+    11.	Kia
+    12.	Lincoln
+    13.	Mazda
+    14.	Mercedes Benz
+    15.	Mitsubishi
+    16.	Nissan
+    17.	Ram
+    18.	Subaru
+    19.	Toyota
+    20.	None of the above
+    
+  + **Región**: Región del lugar de residencia. Las respuestas corresponden a la siguiente lista:
+    0.	New England
+    1.	Mid-Atlantic
+    2.	East North Central
+    3.	West North Central
+    4.	South Atlantic
+    5.	East South Central
+    6.	West South Central
+    7.	Mountain
+    8.	Pacific
+
+  + **Crédito**: Cantidad de crédito que tiene disponible.
+  + **Marca**: Marca de ordenadores que prefiere.
+    0. Acer
+    1. Sony
+
+* Tipo variables
+  + Respuestas Completas:
+
+```{r}
+#Se comprueba el tipo de variable que contiene
+str(CR)
+```
+
+  + Encuesta Incompleta:
+  
+```{r}
+#Se comprueba el tipo de variable que contiene
+str(SI)
+```
+
+Las variables salario y crédito son decimales (num) mientras que el resto son enteros (int).
+
+# PREPARACIÓN DE LOS DATOS
+
+En este apartado se manipularán los datos para evitar problemas de formato, valores incorrectos que induzcan a error, etc.
+
+## LIMPIEZA DE DATOS
+
+En primer lugar limpiamos los datos.
+
+### VALORES INCORRECTOS
+
+Aquí tratamos de identificar los valores fuera de rango o valores que no tengan sentido para nuestras variables.
+
+Mostramos un resumen estadístico de los datos:
+
+* Respuestas Completas
+```{r}
+#Resumen de los principales estadísticos
+summary(CR)
+```
+
+* Encuesta Incompleta
+```{r}
+#Resumen de los principales estadísticos
+summary(SI)
+```
+
+Observamos que todas las variables están dentro de los rangos esperados:
+
+* Salario >= 0
+* Edad > 0
+* 0 <= Nivel Educativo <= 4
+* 1 <= Coche <= 20
+* 0 <= Región <= 8
+* Crédito >= 0
+* Marca = {0,1}
+
+### VALORES FALTANTES
+
+Comprobamos si falta algún valor en el conjunto de datos
+```{r}
+#Resumen de Estadísticos
+sprintf('Datos Faltantes para Respuestas Completas: %s',any(is.na(CR)))
+sprintf('Datos Faltantes para Encuesta Completa: %s',any(is.na(SI)))
+```
+
+No tenemos valores faltantes.
+
+### VALORES DUPLICADOS
+
+Revisamos si existen valores duplicados para ambos conjuntos de datos:
+
+```{r}
+#Datos duplicados
+sprintf('Datos duplciados para Respuestas Completas: %s',unique(duplicated(CR)))
+sprintf('Datos duplicados para Encuesta Completa: %s',unique(duplicated(SI)))
+```
+
+No tenemos ninguna fila repetida.
+
+### VALORES ATÍPICOS
+
+Es necesario conocer la distribución de los datos para identificar los valores atípicos. Por este motivo, los valoraremos durante el análisis exploratorio.
+
+### CAMBIO DE CLASE
+
+Tenemos varias variables categóricas que se describen mediante valores enteros. Vamos a modificar la clase de estas variables a variables tipo factor.
+
+```{r}
+#Vector nombres niveles educativos
+educacion_name=c('Less than High School','High School',
+                    'Some College','4-College Degree','Ms, PhD, Pr. Degree')
+#Vector nombre coche
+coches_name <- c('BMW','Buick','Cadillac','Chevrolet','Chrysler','Dodge','Ford','Honda','Hyundai','Jeep','Kia','Lincoln','Mazda','MercedesBenz','Mitsubishi','Nissan','Ram','Subaru','Toyota','Other')
+#Vector nombre región
+zip_name <- c('New England','Mid-Atlantic','East North Central','West North Central','South Atlantic','East South Central','West South Central','Mountain','Pacific')
+#Vector nombre marca
+brand_name <- c('Acer','Sony')
+#Se cambian los valores numéricos por strings
+for (i in c(3,4,5,7)){
+  for (j in 1:length(unique(CR[,i]))){
+    if (i==3){
+      CR[i][CR[i] == j-1] <- educacion_name[j]
+      SI[i][SI[i] == j-1] <- educacion_name[j]
+    }
+    if (i==4){
+      CR[i][CR[i] == j] <- coches_name[j]
+      SI[i][SI[i] == j] <- coches_name[j]
+    }
+    else if (i==5){
+      CR[i][CR[i] == j-1] <- zip_name[j]
+      SI[i][SI[i] == j-1] <- zip_name[j]
+    }
+    else if (i==7){
+      CR[i][CR[i] == j-1] <- brand_name[j]
+      SI[i][SI[i] == j-1] <- brand_name[j]
+    }
+  }
+}
+#Se reconvierten en clase factor
+CR$elevel<-factor(CR$elevel,levels=educacion_name)
+CR$car<-factor(CR$car,levels=coches_name)
+CR$zipcode<-factor(CR$zipcode,levels=zip_name)
+CR$brand<-factor(CR$brand,levels=brand_name)
+
+SI$elevel<-factor(SI$elevel,levels=educacion_name)
+SI$car<-factor(SI$car,levels=coches_name)
+SI$zipcode<-factor(SI$zipcode,levels=zip_name)
+SI$brand<-factor(SI$brand,levels=brand_name)
+#Se muestra resumen de los dataset resultantes
+summary(CR)
+summary(SI)
+```
+
+## RENOMBRAR VARIABLES
+
+Cambiamos el nombre de las variables:
+
+```{r}
+#Cambiamos el nombre de  las variables
+names(CR)=c('Salario','Edad','Educacion','Coche','Region','Credito','Marca')
+names(SI)=c('Salario','Edad','Educacion','Coche','Region','Credito','Marca')
+```
+
+# ANÁLISIS EXPLORATORIO
+
+El objetivo es describir las variables. Mostraremos gráficos para ver rápidamente cómo se distribuyen y cómo se relacionan entre ellas.
+
+## ANÁLISIS UNIVARIANTE
+
+Empecemos por el por el primer punto: ¿cómo se distribuyen las variables?
+
+### SALARIO
+
+Veamos la distribución de la variable salario:
+
+```{r Salario, fig.cap="Distribución de la variable Salario"}
+#Violin plot Crédito CR
+V_CR_Salary <- ggplot(CR, aes(x=factor(0),y=Salario))+
+  geom_violin(color="black",fill='lightblue')+
+  geom_boxplot(width=0.1)+
+  ggtitle('Salario - Respuestas Completas')+
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.y = element_text(color='black',size=10,angle=0))+
+  scale_y_continuous(name ="Salario",limits=c(2000,150000),breaks=seq(0,150000,10000))
+
+
+#Violin plot Crédito SI
+V_SI_Salary <- ggplot(SI, aes(x=factor(0),y=Salario))+
+#color de las cajas
+  geom_violin(color="black",fill='indianred1')+
+  geom_boxplot(width=0.1)+
+#título
+  ggtitle('Salario - Encuesta Incompleta')+
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.y = element_text(color='black',size=10,angle=0))+
+  scale_y_continuous(name ="Salario",limits=c(2000,150000),breaks=seq(0,150000,10000))
+grid.arrange(V_CR_Salary,V_SI_Salary, ncol=2)
+```
+
+La distribución es prácticamente idéntica en ambos conjuntos de datos. No tenemos valores atípicos.
+
+### EDAD
+
+Mostramos el número de ocurrencias para cada valor de la edad en ambos conjuntos de datos:
+
+```{r Edad, fig.cap="Distribución de la variable Edad"}
+#Histograma plot Edad CR
+Hist_Age_CR <- ggplot(CR, aes(x=Edad)) +
+  geom_bar(position="identity",fill='lightblue',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución de la Edad - Respuestas Completas",x="Edad (años)", y = "Frecuencia [%]")+
+  scale_x_continuous(breaks=seq(20,80,5))+
+  scale_y_continuous(limits=c(0,2.5),breaks=seq(0,2.5,0.5))+
+  geom_vline(aes(xintercept=quantile(Edad,prob=0.50),
+            color="Median"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=quantile(Edad,prob=0.25),
+            color="Quartile0.25"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=quantile(Edad,prob=0.75),
+            color="Quartile0.75"), linetype="dashed", size=1)+
+  scale_color_manual(name = "Quartiles",
+                     values = c(Median = "blue", Quartile0.25 = "darkgreen",Quartile0.75='red'))
+
+#Histograma plot Edad SI
+Hist_Age_SI <- ggplot(SI, aes(x=Edad)) +
+  geom_bar(position="identity",fill='indianred1',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución de la Edad - Encuesta Incompleta",x="Edad (años)", y = "Frecuencia [%]")+
+  scale_x_continuous(breaks=seq(20,80,5))+
+  scale_y_continuous(limits=c(0,2.5),breaks=seq(0,2.5,0.5))+
+  geom_vline(aes(xintercept=quantile(Edad,prob=0.50),
+            color="Median"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=quantile(Edad,prob=0.25),
+            color="Quartile0.25"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=quantile(Edad,prob=0.75),
+            color="Quartile0.75"), linetype="dashed", size=1)+
+  scale_color_manual(name = "Quartiles",
+                     values = c(Median = "blue", Quartile0.25 = "darkgreen",Quartile0.75='red'))
+
+grid.arrange(Hist_Age_CR,Hist_Age_SI, nrow=2)
+```
+
+La distribución es muy parecida. Aunque hay cambios puntuales, los estadísticos se mantienen para ambos conjuntos. Los cuartiles son exactamente los mismos.
+
+### EDUCACIÓN
+
+Mostramos el número de ocurrencias para cada nivel educacional:
+
+```{r Educacion, fig.cap="Distribución de la variable Educación"}
+#Histograma plot Educación CR
+Hist_Edu_CR <- ggplot(CR, aes(x=Educacion)) +
+  geom_bar(position="identity",fill='lightblue',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución del Nivel Educativo - Respuestas Completas",x="Educación", y = "Frecuencia [%]")+
+  scale_y_continuous(limits=c(0,25),breaks=seq(0,25,5))
+
+
+#Histograma plot Educación SI
+Hist_Edu_SI <- ggplot(SI, aes(x=Educacion)) +
+  geom_bar(position="identity",fill='indianred1',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución del Nivel Educativo - Encuesta Incompleta",x="Educación", y = "Frecuencia [%]")+
+  scale_y_continuous(limits=c(0,25),breaks=seq(0,25,5))
+
+grid.arrange(Hist_Edu_CR,Hist_Edu_SI, nrow=2)
+```
+
+La distribución es muy equilibrada. Prácticamente hay el mismo número de observaciones para cada uno de los niveles educativos. Además, este resultado aplica a ambas bases de datos.
+
+### COCHE
+
+Veamos si tenemos ciertas tendencias en la marca de vehículo que posee cada persona encuestada:
+
+```{r Coche, fig.cap="Distribución de la variable Coche"}
+#Histograma plot Coche CR
+Hist_Coche_CR <- ggplot(CR, aes(x=Coche)) +
+  geom_bar(position="identity",fill='lightblue',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución Vehículos - Respuestas Completas",x="Marca Vehículo", y = "Frecuencia [%]")+
+  scale_x_discrete(guide=guide_axis(n.dodge=2))+
+  scale_y_continuous(limits=c(0,6),breaks=seq(0,6,1))+
+  theme(axis.text.x = element_text(angle=0,size=8))
+
+#Histograma plot Coche SI
+Hist_Coche_SI <- ggplot(SI, aes(x=Coche)) +
+  geom_bar(position="identity",fill='indianred1',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución Vehículos - Encuesta Incompleta",x="Marca Vehículo", y = "Frecuencia [%]")+
+  scale_x_discrete(guide=guide_axis(n.dodge=2))+
+  scale_y_continuous(limits=c(0,6),breaks=seq(0,6,1))+
+  theme(axis.text.x = element_text(angle=0,size=8))
+
+grid.arrange(Hist_Coche_CR,Hist_Coche_SI, nrow=2)
+```
+
+De nuevo las frecuencias para cada valor posible están muy igualadas. Resultados similares para ambos conjuntos de datos.
+
+### REGIÓN
+
+Veamos si tenemos ciertas tendencias en el domicilio de los encuestados:
+
+```{r Region, fig.cap="Distribución de la variable Región"}
+#Histograma plot Región CR
+Hist_zip_CR <- ggplot(CR, aes(x=Region)) +
+  geom_bar(position="identity",fill='lightblue',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución de los datos según Región - Respuestas Completas",x="Región", y = "Frecuencia [%]")+
+  scale_x_discrete(guide=guide_axis(n.dodge=2))+
+  scale_y_continuous(limits=c(0,12),breaks=seq(0,12,2))+
+  theme(axis.text.x = element_text(angle=0,size=8))
+
+#Histograma plot Región SI
+Hist_zip_SI <- ggplot(SI, aes(x=Region)) +
+  geom_bar(position="identity",fill='indianred1',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Distribución de los datos según Región - Encuesta Incompleta",x="Región", y = "Frecuencia [%]")+
+  scale_x_discrete(guide=guide_axis(n.dodge=2))+
+  scale_y_continuous(limits=c(0,12),breaks=seq(0,12,2))+
+  theme(axis.text.x = element_text(angle=0,size=8))
+
+grid.arrange(Hist_zip_CR,Hist_zip_SI, nrow=2)
+```
+
+Frecuencias parecidas para ambos conjuntos de datos y homogéneamente repartidas.
+
+### CRÉDITO
+
+Veamos la distribución de la variable crédito:
+
+```{r Credito, fig.cap="Distribución de la variable Crédito"}
+#Boxplot plot Crédito CR
+V_CR_Credit <- ggplot(CR, aes(x=factor(0),y=Credito))+
+  geom_violin(color="black",fill='lightblue')+
+  geom_boxplot(width=0.1)+
+  ggtitle('Crédito - Respuestas Completas')+
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.y = element_text(color='black',size=10,angle=0))+
+  scale_y_continuous(name ="Crédito",limits=c(0,500000),breaks=seq(0,500000,50000))
+
+
+#Boxplot plot Crédito SI
+V_SI_Credit <- ggplot(SI, aes(x=factor(0),y=Credito))+
+#color de las cajas
+  geom_violin(color="black",fill='indianred1')+
+  geom_boxplot(width=0.1)+
+#título
+  ggtitle('Crédito - Encuesta Incompleta')+
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.y = element_text(color='black',size=10,angle=0))+
+  scale_y_continuous(name ="Crédito",limits=c(0,500000),breaks=seq(0,500000,50000))
+grid.arrange(V_CR_Credit,V_SI_Credit, ncol=2)
+```
+
+La distribución es prácticamente idéntica en ambos conjuntos de datos. No tenemos valores atípicos.
+
+### MARCA
+
+Hagamos lo mismo para la variable objetivo. En este caso no se muestran los resultados para el conjunto de datos incompleto ya que son incorrectos:
+
+```{r Marca, fig.cap="Distribución de la variable Marca"}
+#Histograma plot Marca CR
+Hist_brand_CR <- ggplot(CR, aes(x=Marca)) +
+  geom_bar(position="identity",fill='lightblue',color='black',aes(y = (..count..)*100/sum(..count..)))+
+  theme(axis.text.x = element_text(size=10,angle=0))+
+  labs(title="Frecuencia en la Respuesta Marca - Respuestas Completas",x="Marca de Ordenador", y = "Frecuencia [%]")+
+  scale_y_continuous(limits=c(0,70),breaks=seq(0,70,10))+
+  theme(axis.text.x = element_text(angle=0,size=8))
+
+Hist_brand_CR
+```
+
+A pesar de que para el resto de variables las distribuciones eran muy homogéneas, los encuestados tienen una preferencia clara para escoger la marca.
+
+## ANÁLISIS BIVARIANTE
+
+Analizamos la relación que existe entre las variables. En primer lugar realizaremos un análisis bivariante dónde se mostrará cómo se distribuye la variable objetivo en función de las demás. En este análisis solo entra en juego la encuesta completa ya que es la única que proporciona datos sobre las preferencias de marca del encuestado.
+
+### MARCA - SALARIO
+
+Mostramos la dependencia entre la marca elegida por el encuestado y su salario:
+
+```{r MarcaSalario, fig.cap="Distribución del Salario para cada Marca"}
+#Violin plot Crédito CR
+ggplot(CR, aes(x=Marca,y=Salario))+
+  geom_violin(color="black",fill='lightblue')+
+  geom_boxplot(width=0.1)+
+  ggtitle('Distribución del Salario según Marca')+
+  theme(axis.text.y = element_text(color='black',size=10,angle=0),
+        axis.text.x = element_text(color='black',size=10,angle=0))+
+  scale_y_continuous(name ="Salario",limits=c(2000,150000),breaks=seq(0,150000,10000))
+```
+
+La marca escogida muestra una fuerte dependencia con el salario del encuestado. El patrón es muy claro y las figuras resultantes del violinplot muestran patrones contrarios para cada marca y para todo el rango de salarios. Por esta razón, podemos anticipar que esta variable nos proporcionará mucha información.
+
+### MARCA - EDAD
+
+Veamos la dependencia entre la edad y la marca seleccionada:
+
+```{r MarcaEdad, fig.cap="Distribución de la Edad para cada Marca"}
+#Violin plot Crédito CR
+ggplot(CR, aes(x=Marca,y=Edad))+
+  geom_violin(color="black",fill='lightblue')+
+  geom_boxplot(width=0.1)+
+  ggtitle('Distribución de la Edad según Marca')+
+  theme(axis.text.y = element_text(color='black',size=10,angle=0),
+        axis.text.x = element_text(color='black',size=10,angle=0))+
+  scale_y_continuous(name ="Edad",limits=c(20,80),breaks=seq(20,80,5))
+```
+
+Aparentemente, no existe dependencia entre estas variables. La distribución de edades para cada marca es prácticamente idéntico y no permite distinguirlas.
+
+### MARCA - EDUCACIÓN
+
+Veamos la dependencia entre el nivel educativo y la marca.
+
+```{r MarcaEducacion, fig.cap="Distribución del Nivel Educativo para cada Marca"}
+#Histograma plot Educación CR
+ggplot(CR, aes(x=Educacion)) +
+  geom_bar(position='dodge',aes(fill=Marca,y = ..count..))+
+  theme(axis.text.x = element_text(size=9,angle=0))+
+  labs(title="Ocurrencias de cada Marca según Nivel Educativo",x="Nivel Educativo", y = "Frecuencia")
+```
+
+Los encuestados se decantan por una marca u otra en la misma proporción para todos los niveles educativo. Salvo pequeñas diferencias, podemos decir que no existe una fuerte dependencia.
+
+### MARCA - COCHE
+
+Dependencia entre el coche en posesión del encuestado y su preferencia de marca:
+
+```{r MarcaCoche, fig.cap="Distribución en la preferencia de marca según Coche del encuestado"}
+#Histograma plot Educación CR
+ggplot(CR, aes(x=Coche)) +
+  geom_bar(position='dodge',aes(fill=Marca,y = ..count..))+
+  theme(axis.text.x = element_text(size=8,angle=0))+
+  labs(title="Marca según Coche",x="Coche", y = "Frecuencia")+
+  scale_x_discrete(guide=guide_axis(n.dodge=2))
+```
+
+A pesar de ciertas diferencias, no son suficientes para considerar esta variable relevante para el análisis.
+
+### MARCA - REGIÓN
+
+Veamos si existen preferencias de marca según la región donde se vive
+
+```{r MarcaRegion, fig.cap="Distribución de la Región para cada Marca"}
+#Histograma plot Educación CR
+ggplot(CR, aes(x=Region)) +
+  geom_bar(position='dodge',aes(fill=Marca,y = ..count..))+
+  theme(axis.text.x = element_text(size=8,angle=0))+
+  labs(title="Marca según Región",x="Región", y = "Frecuencia")+
+  scale_x_discrete(guide=guide_axis(n.dodge=2))
+```
+
+Igual que en el caso anterior, las diferencias son mínimas y no existe patrón diferenciador.
+
+### MARCA - CRÉDITO
+
+Veamos si hay depencia entre el crédito y la marca.
+
+```{r MarcaCredito, fig.cap="Distribución del Crédito para cada Marca"}
+#Violin plot Crédito CR
+ggplot(CR, aes(x=Marca,y=Credito))+
+  geom_violin(color="black",fill='lightblue')+
+  geom_boxplot(width=0.1)+
+  ggtitle('Distribución del Crédito por Marca')+
+  theme(axis.text.y = element_text(color='black',size=10,angle=0),
+        axis.text.x = element_text(color='black',size=10,angle=0))+
+  scale_y_continuous(name ="Crédito",limits=c(0,500000),breaks=seq(0,500000,50000))
+```
+
+La distribución del crédito es muy parecida para clientes de ambas preferencias.
+
+## ANÁLISIS MULTIVARIANTE
+
+El objetivo es mostrar gráficos algo más complejos donde se visualicen tantas variables como sea posible.
+
+En el apartado anterior vimos que solo el salario mostraba un patrón claro. Sin embargo, puede que la agrupación de las observaciones en más de una variable nos permita ver patrones imposibkles de distinguir en el análisis bivariante.
+
+Se han realizado numerosas combinaciones sin resultados relevantes. Por esta razón, y con el objetivo de no extender innecesariamente el informe, se mostrarán a continuación únicamente aquellos que han aportado información.
+
+Este es el caso de la combinación Salario y Edad. Estas dos variables permiten aislar prácticamente a la perfección la preferencia de marca. Se muestra dicho resultado en el siguiente gráfico:
+
+```{r MarcaSalarioEdad, fig.cap="Preferencia de Marca según Salario y Edad"}
+ggplot(CR, aes(x=Edad,y=Salario,color=Marca))+
+     geom_jitter()+
+     ggtitle('Preferencia de Marca según Salario y Edad')+
+     theme(axis.text.y = element_text(color='black',size=10,angle=0),
+           axis.text.x = element_text(color='black',size=10,angle=0))+
+     scale_y_continuous(name="Salario",limits=c(0,160000),
+                        breaks=seq(0,160000,10000))+
+     scale_x_continuous(name="Edad",limits=c(20,80),
+                        breaks=seq(20,80,5))
+```
+
+Claramente existen tres bloques donde la preferencia es Acer y el resto de puntos pertenecen a Sony. Parece ser que estas dos variables serán las que tomarán las decisiones en el modelo.
+
+# MODELADO
+
+El objetivo en esta sección es crear un modelo que nos permita predecir con precisión los datos faltantes de la encuesta incompleta.
+
+## PLANTEAMIENTO
+
+Se ajustarán varios modelos a los datos de la encuesta completa. Tras obtener todos estos modelos, se escogerá el que nos proporcione mejores resultados. No solo consideraremos las métricas del error, el tiempo de ejecución será un factor a tener en cuenta.
+
+Se escogerá algoritmo entre los siguientes:
+
+* C.50
+* Random Forest
+* Vector Machine
+* Regresión Logística
+* K-Nearest Neighbor
+* Gradient Boosting
+* Classification and Regression Trees (CART)
+
+Antes de entrar en el ajuste de modelos, debemos realizar dos pasos más: la selección de variables independientes y la partición de datos.
+
+## SELECCIÓN DE LAS VARIABLES INDEPENDIENTES
+
+En este apartado seleccionaremos las variables independientes. Dados los resultados del análisis exploratorio, las variables que deben entrar en juego son las variables salario y edad.
+
+Podríamos tomar el resto de variables y no afectaría a nuestro análisis, incluso ganaríamos algo de precisión. Sin embargo, vistos los datos, esa ganancia de precisión no sería significante, ni siquiera realista. La razón está en que las demás variables tan solo nos porpocionan tendencias poco o nada generales, las cuales nos  servirán para clasificar algunas muestras muy localmente en caso de que el modelo tenga dudas. Estos patrones locales pueden ser fruto de la suerte en el muestreo.
+
+Además, tiene un gran inconveniente y es que multiplicará el tiempo de cálculo, el cual se tratará también como otro criterio de selección. Remitiéndonos de nuevo a los resultados del análisis exploratorio, podemos anticipar que este tiempo de cálculo adicional será un inconveniente de mayor peso que las ventajas que obtengamos en términos de precisión.
+
+```{r}
+#Features y Variable Objetivo
+Var <- c('Salario','Edad','Marca')
+```
+
+## DEFINICIÓN DE LA PARTICIÓN DE DATOS
+
+Serán necesarías dos particiones:
+
+* La segunda partición (validación) nos servirá para escoger con criterio qué algoritmo es el más eficaz para dar respuesta al problema propuesto.
+* La primera se usará para dar los resultados del modelo definitivo con los parámetros ya optimizados.
+
+Finalmente se aplicará este último modelo para realizar las predicciones de la encuesta incompleta.
+
+Para cada una de las particiones descritas, se realiza una partición tal que el 75% de los datos corresponden a training y el 25% restante a test.
+
+```{r}
+#Se fija una semilla para conseguir reproducibilidad
+set.seed(123)
+# define una partición 75%/25% train/test del conjunto de datos
+SplitPartition <- createDataPartition(CR$Marca, p = 0.75, list = FALSE)
+#Obtenemos una primera partición. El conjunto Test se reserva para la evaluación del modelo definitivo
+CR_Training <- CR[SplitPartition,Var]
+CR_Test <- CR[-SplitPartition,Var]
+#Creamos una segunda partición sobre el conjunto training. Nos servirá para evaluar cada uno de los modelos que se propongan
+SplitPartition_Val <- createDataPartition(CR_Training$Marca, p = 0.75, list = FALSE)
+CR_Val_Training <- CR_Training[SplitPartition_Val,]
+CR_Val_Test <- CR_Training[-SplitPartition_Val,]
+```
+
+## APLICACIÓN DE LOS ALGORITMOS
+
+Llegados a este punto ya estamos preparados para crear nuestros primeros modelos. A continuación se obtienen los modelos predictivos utilizando la segunda partición.
+
+### ALGORITMO C5.0
+
+En este apartado consideraremos el algoritmo *C5.0*.
+
+#### OPTIMIZACIÓN DE PARÁMETROS
+
+El algoritmo *C5.0* tiene hasta tres parámetros a optimizar:
+
+* *trials*
+* *model*
+* *winnow*
+
+A continuación se define el proceso de optimización de dichos parámetros.
+
+```{r}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+C50.Process <- trainControl(method = "repeatedcv", repeats = 1, number=10)
+```
+
+A continuación se calculan las métricas para cada valor del parámetro y se escoge la combinación óptima
+
+```{r warning=FALSE}
+#Se calculan las métricas a través del proceso definido por la función train() (parámetros escogidos automáticamente)
+C50.Time <- system.time(C50.Fit <- train(Marca ~ ., data =CR_Val_Training,
+                        method = "C5.0",trControl=C50.Process, tuneLength = 5))
+```
+
+Ya tenemos el modelo con los parámetros optimizados. Estos parámetros óptimos son:
+
+```{r}
+sprintf('Parámetros óptimos: trials = %s, model = %s y winnowo = %s',
+        C50.Fit$bestTune[1],C50.Fit$bestTune[2][1,1],C50.Fit$bestTune[3])
+```
+
+#### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+C50.Predictions <- predict(C50.Fit,newdata = CR_Val_Test)
+```
+
+#### FIABILIDAD DE LAS PREDICCIONES
+
+Mostramos la matriz de confusión junto a las métricas y el tiempo de cálculo:
+
+```{r CMC50, fig.cap="Matriz de Confusión para el algoritmo C.50. Parámetros: trails=30, model=tree y winnowo=TRUE"}
+#Se obtiene la matriz de confusión
+C50.CM <- confusionMatrix(data=C50.Predictions, CR_Val_Test$Marca)
+#Función que visualiza la matriz de confusión
+draw_confusion_matrix <- function(cm,title,time) {
+  
+  layout(matrix(c(1,1,2)))
+  par(mar=c(2,2,2,2))
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  title(paste('MATRIZ DE CONFUSIÓN: ',title), cex.main=2)
+  
+  # create the matrix 
+  rect(150, 430, 240, 370, col='#3F97D0')
+  text(195, 435, 'Acer', cex=1.2)
+  rect(250, 430, 340, 370, col='#F7AD50')
+  text(295, 435, 'Sony', cex=1.2)
+  text(125, 370, 'Valores Predichos', cex=1.3, srt=90, font=2)
+  text(245, 450, 'Valores Verdaderos', cex=1.3, font=2)
+  rect(150, 305, 240, 365, col='#F7AD50')
+  rect(250, 305, 340, 365, col='#3F97D0')
+  text(140, 400, 'Acer', cex=1.2, srt=90)
+  text(140, 335, 'Sony', cex=1.2, srt=90)
+  
+  # add in the cm results 
+  res <- as.numeric(cm$table)
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+  
+  # add in the specifics 
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETALLES", xaxt='n', yaxt='n')
+  text(10, 85, names(cm$byClass[1]), cex=1.2, font=2)
+  text(10, 70, round(as.numeric(cm$byClass[1]), 3), cex=1.2)
+  text(30, 85, names(cm$byClass[2]), cex=1.2, font=2)
+  text(30, 70, round(as.numeric(cm$byClass[2]), 3), cex=1.2)
+  text(50, 85, names(cm$byClass[5]), cex=1.2, font=2)
+  text(50, 70, round(as.numeric(cm$byClass[5]), 3), cex=1.2)
+  text(70, 85, names(cm$byClass[6]), cex=1.2, font=2)
+  text(70, 70, round(as.numeric(cm$byClass[6]), 3), cex=1.2)
+  text(90, 85, names(cm$byClass[7]), cex=1.2, font=2)
+  text(90, 70, round(as.numeric(cm$byClass[7]), 3), cex=1.2)
+  text(90, 35, 'Time [s]', cex=1.2, font=2)
+  text(90, 20, round(time,1), cex=1.2)
+  
+  # add in the accuracy information 
+  text(30, 35, names(cm$overall[1]), cex=1.5, font=2)
+  text(30, 20, round(as.numeric(cm$overall[1]), 3), cex=1.4)
+  text(70, 35, names(cm$overall[2]), cex=1.5, font=2)
+  text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
+} 
+#Se muestra la matriz de confusión
+draw_confusion_matrix(C50.CM,'C5.0',C50.Time[3])
+#Se guardan las métricas
+C50.Metrics <- c(C50.CM$byClass[1],C50.CM$byClass[2],C50.CM$byClass[5],
+                 C50.CM$byClass[6],C50.CM$byClass[7],C50.CM$overall[1],
+                 C50.CM$overall[2],C50.Time[3])
+```
+
+### MODELO RANDOMFOREST
+
+En este apartado consideramos el algoritmo *random forest*.
+
+#### OPTIMIZACIÓN DE PARÁMETROS
+
+Para el algoritmo *RandomForest*, tenemos un único parámetro a optimizar: *mtry*. A continuación se define el proceso de optimización de dicho parámetro.
+
+```{r}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+RF.Process <- trainControl(method = "repeatedcv", repeats = 1, number=10)
+```
+
+A continuación se calculan las métricas para cada valor del parámetro y se escoge la combinación óptima
+
+```{r}
+#Se calculan las métricas a través del proceso definido por la función train() (parámetros escogidos automáticamente)
+RF.Time <- system.time(RF.Fit <- train(Marca ~ ., data =CR_Val_Training, method = "rf",
+                                  trControl=RF.Process, tuneLength = 5))
+```
+
+Ya tenemos el modelo con el parámetro optimizado.
+
+```{r}
+sprintf('Parámetro óptimo: mtry = %s',RF.Fit$bestTune)
+```
+
+#### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+RF.Predictions <- predict(RF.Fit,newdata = CR_Val_Test)
+```
+#### FIABILIDAD DE LAS PREDICCIONES
+
+Se muestra la matriz de confusión y las métricas del modelo.
+
+```{r CMRF, fig.cap="Matriz de Confusión para el algoritmo Random Forest. Parámetro: mtry = 2"}
+#Se obtiene la matriz de confusión
+RF.CM <- confusionMatrix(data=RF.Predictions, CR_Val_Test$Marca)
+#Se visualiza la matriz de confusión
+draw_confusion_matrix(RF.CM,'Random Forest',RF.Time[3])
+#Se guardan las métricas
+RF.Metrics <- c(RF.CM$byClass[1],RF.CM$byClass[2],RF.CM$byClass[5],
+                 RF.CM$byClass[6],RF.CM$byClass[7],RF.CM$overall[1],RF.CM$overall[2],
+                RF.Time[3])
+```
+
+### OTROS ALGORITMOS
+
+Danielle Sherman nos pidió utilizar los algoritmos C5.0 y RandomForest específicamente. Sin embargo, vamos a comprobar si existen otros con un mejor ajuste a los datos.
+
+#### SUPPORT VECTOR MACHINE
+
+Existen muchas variantes del algoritmo. En nuestro caso escogemos el algoritmo *Support Vector Machines with Radial Basis Function Kernel*. La razón es sencilla, creando un kernel radial con centro cada uno de las regiones donde se concentran las muestras correspondientes a Acer, podríamos identificar fácilmente las muestras.
+
+##### OPTIMIZACIÓN DE PARÁMETROS
+
+Para el algoritmo escogido tenemos dos parámetros a optimizar: *C* y *sigma*. A continuación se define el proceso de optimización de dichos parámetros.
+
+```{r}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+SVM.Process <- trainControl(method = "repeatedcv", repeats = 1, number=10)
+```
+
+A continuación se calculan las métricas para cada valor del parámetro y se escoge la combinación óptima
+
+```{r}
+#Se calculan las métricas a través del proceso definido por la función train() (parámetros escogidos automáticamente)
+SVM.Time <- system.time(SVM.Fit <- train(Marca ~ ., data =CR_Val_Training, method = "svmRadial",
+                                  trControl=SVM.Process, tuneLength = 5))
+```
+
+Ya tenemos el modelo con el parámetro optimizado.
+
+```{r}
+sprintf('Parámetros óptimos: C = %s y sigma = %s',SVM.Fit$bestTune['C'],round(SVM.Fit$bestTune['sigma'],4))
+```
+
+##### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+SVM.Predictions <- predict(SVM.Fit,newdata = CR_Val_Test)
+```
+##### FIABILIDAD DE LAS PREDICCIONES
+
+Se muestran la matriz de confusión y las métricas del modelo.
+
+```{r CMSVM, fig.cap="Matriz de Confusión para el algoritmo SVM Radial Kernel. Parámetros: C=4 y sigma=1.2069"}
+#Se obtiene la matriz de confusión
+SVM.CM <- confusionMatrix(data=SVM.Predictions, CR_Val_Test$Marca)
+#Se muestra la matriz de confusión
+draw_confusion_matrix(SVM.CM,'Support Vector Machine. Radial Kernel',SVM.Time[3])
+#Se guardan las métricas del modelo
+SVM.Metrics <- c(SVM.CM$byClass[1],SVM.CM$byClass[2],
+                SVM.CM$byClass[5],SVM.CM$byClass[6],SVM.CM$byClass[7],SVM.CM$overall[1],
+                SVM.CM$overall[2],SVM.Time[3])
+```
+
+#### REGRESIÓN LOGÍSTICA
+
+En esta sección aplicaremos el algoritmo *Logistic Model Tree*. Este algoritmo es el resultado de combinar la regresión logística con los árboles de decisión. Cada nodo del árbol tiene asociada una regresión logística proporcionando así una función lineal a trozos.
+
+##### OPTIMIZACIÓN DE PARÁMETROS
+
+Para el algoritmo escogido tenemos un único parámetro a optimizar: *iter*. A continuación se define el proceso de optimización de dicho parámetro.
+
+```{r}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+LR.Process <- trainControl(method = "repeatedcv", repeats = 1, number=10)
+```
+
+A continuación se calculan las métricas para cada valor del parámetro y se escoge la combinación óptima
+
+```{r}
+#Se calculan las métricas a través del proceso definido por la función train() (parámetros escogidos automáticamente)
+LR.Time <- system.time(LR.Fit <- train(Marca ~ ., data =CR_Val_Training, method = "LMT",
+                                  trControl=LR.Process, tuneLength = 5))
+```
+
+Ya tenemos el modelo con el parámetro optimizado.
+
+```{r}
+sprintf('Parámetro óptimo: iter = %s',LR.Fit$bestTune)
+```
+
+##### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+LR.Predictions <- predict(LR.Fit,newdata = CR_Val_Test)
+```
+##### FIABILIDAD DE LAS PREDICCIONES
+
+Se muestra la matriz de confusión junto a las métricas del modelo.
+
+```{r CMLR, fig.cap="Matriz de Confusión para el algoritmo Logistic Model Tree. Parámetro: iter=1"}
+#Se obtiene la matriz de confusión
+LR.CM <- confusionMatrix(data=LR.Predictions, CR_Val_Test$Marca)
+#Se muestra la matriz de confusión
+draw_confusion_matrix(LR.CM,'LOGISTIC MODEL TREE',LR.Time[3])
+#Guardamos las métricas del modelo
+LR.Metrics <- c(LR.CM$byClass[1],LR.CM$byClass[2],
+                LR.CM$byClass[5],LR.CM$byClass[6],LR.CM$byClass[7],LR.CM$overall[1],
+                LR.CM$overall[2],LR.Time[3])
+```
+
+#### K-NEAREST NEIGHBOR
+
+En esta sección aplicaremos el algoritmo *K-Nearest Neighbors*.
+
+##### OPTIMIZACIÓN DE PARÁMETROS
+
+Para el algoritmo escogido tenemos varios parámetros a optimizar:
+* *kmax*
+* *distance*
+* *kernel*
+
+A continuación se define el proceso de optimización de los parámetros.
+
+```{r}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+KNN.Process <- trainControl(method = "repeatedcv", repeats = 1, number=10)
+```
+
+A continuación se calculan las métricas para cada valor del parámetro y se escoge la combinación óptima
+
+```{r}
+#Se calculan las métricas a través del proceso definido por la función train() (parámetros escogidos automáticamente)
+KNN.Time <- system.time(KNN.Fit <- train(Marca ~ ., data =CR_Val_Training, method = "kknn",
+                                  trControl=KNN.Process, tuneLength = 5))
+```
+
+Ya tenemos el modelo con los parámetros optimizados:
+
+```{r}
+sprintf('Parámetros óptimos: kmax = %s, distance = %s y kernel = %s',KNN.Fit$bestTune['kmax'],KNN.Fit$bestTune['distance'],
+        KNN.Fit$bestTune['kernel'])
+```
+
+##### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+KNN.Predictions <- predict(KNN.Fit,newdata = CR_Val_Test)
+```
+##### FIABILIDAD DE LAS PREDICCIONES
+
+Se muestran los resultados y métricas del modelo.
+
+```{r CMKNN, fig.cap="Matriz de Confusión para el algoritmo K-Nearest Neighbor. Parámetros: kmax=13, distance=2 y kernel=optimal"}
+#Se obtiene la matriz de confusión
+KNN.CM <- confusionMatrix(data=KNN.Predictions, CR_Val_Test$Marca)
+#Se muestra la matriz de confusión
+draw_confusion_matrix(KNN.CM,'K-Nearest Neighbor',KNN.Time[3])
+#Vector con resumen de métricas
+KNN.Metrics <- c(KNN.CM$byClass[1],KNN.CM$byClass[2],
+                KNN.CM$byClass[5],KNN.CM$byClass[6],KNN.CM$byClass[7],KNN.CM$overall[1],
+                KNN.CM$overall[2],KNN.Time[3])
+```
+
+#### GRADIENT BOOSTING MACHINE
+
+En esta sección aplicaremos el algoritmo *Gradient Boosting Machine*.
+
+##### OPTIMIZACIÓN DE PARÁMETROS
+
+Para el algoritmo escogido tenemos varios parámetros a optimizar:
+
+* *ntrees*
+* *interaction.depth*
+* *shrinkage*
+* *n.minobsinnode*
+
+A continuación se define el proceso de optimización de los parámetros.
+
+```{r}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+GB.Process <- trainControl(method = "repeatedcv", repeats = 1, number=10)
+```
+
+A continuación se calculan las métricas para cada valor del parámetro y se escoge la combinación óptima
+
+```{r warning=FALSE}
+#Se calculan las métricas a través del proceso definido por la función train() (parámetros escogidos automáticamente)
+GB.Time <- system.time(capture.output(GB.Fit <- train(Marca ~ ., data =CR_Val_Training, method = "gbm",
+                                  trControl=GB.Process, tuneLength = 5)))
+```
+
+Ya tenemos el modelo con el parámetro optimizado.
+
+```{r}
+sprintf('Parámetro óptimo: n.trees = %s, interaction.depth = %s, shrinkage= %s y n.minobsinnode = %s',GB.Fit$bestTune[1],GB.Fit$bestTune[2],GB.Fit$bestTune[3],GB.Fit$bestTune[4])
+```
+##### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+GB.Predictions <- predict(GB.Fit,newdata = CR_Val_Test)
+```
+##### FIABILIDAD DE LAS PREDICCIONES
+
+Se muestran los resultados y métricas del modelo.
+
+```{r CMGB, fig.cap="Matriz de Confusión para el algoritmo Gradient Boosting. Parámetros: n.trees=150, interaction.depth=4, shrinkage=0.1 y n.minobsinnode=10"}
+#Se obtiene la matriz de confusión
+GB.CM <- confusionMatrix(data=GB.Predictions, CR_Val_Test$Marca)
+#Se muesta la matriz de confusión
+draw_confusion_matrix(GB.CM,'Gradient Boosting Machine',GB.Time[3])
+#Vector con resumen de métricas
+GB.Metrics <- c(GB.CM$byClass[1],GB.CM$byClass[2],
+                GB.CM$byClass[5],GB.CM$byClass[6],GB.CM$byClass[7],GB.CM$overall[1],
+                GB.CM$overall[2],GB.Time[3])
+```
+
+#### CLASSIFICATION AND REGRESSION TREES (CART)
+
+En esta sección aplicaremos el algoritmo *CART*.
+
+##### OPTIMIZACIÓN DE PARÁMETROS
+
+Para el algoritmo escogido tenemos un único parámetro a optimizar: *cp*. A continuación se define el proceso de optimización de los parámetros.
+
+```{r}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+CART.Process <- trainControl(method = "repeatedcv", repeats = 1, number=10)
+```
+
+A continuación se calculan las métricas para cada valor del parámetro y se escoge la combinación óptima
+
+```{r warning=FALSE}
+#Se calculan las métricas a través del proceso definido por la función train() (parámetros escogidos automáticamente)
+CART.Time <- system.time(CART.Fit <- train(Marca ~ ., data =CR_Val_Training, method = "rpart",
+                                  trControl=CART.Process, tuneLength = 7))
+```
+
+Ya tenemos el modelo con el parámetro optimizado.
+
+```{r}
+sprintf('Parámetro óptimo: cp = %.4f',CART.Fit$bestTune[1])
+```
+##### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+CART.Predictions <- predict(CART.Fit,newdata = CR_Val_Test)
+```
+##### FIABILIDAD DE LAS PREDICCIONES
+
+Se muestra la matriz de confusión y las métricas:
+
+```{r CMCART, fig.cap="Matriz de Confusión para el algoritmo CART. Parámetro: cp=0.0114"}
+#Se obtiene la matriz de confusión
+CART.CM <- confusionMatrix(data=CART.Predictions, CR_Val_Test$Marca)
+#Se visualiza la matriz de confusión
+draw_confusion_matrix(CART.CM,'CART',CART.Time[3])
+#Vector con resumen de métricas
+CART.Metrics <- c(CART.CM$byClass[1],CART.CM$byClass[2],
+                CART.CM$byClass[5],CART.CM$byClass[6],CART.CM$byClass[7],CART.CM$overall[1],
+                CART.CM$overall[2],CART.Time[3])
+```
+
+# EVALUACIÓN Y REPORTE DE LOS RESULTADOS
+
+Ahora ya hemos visto los resultados de todos los modelos propuestos y estamos en disposición de analizar cuál de ellos va a proporcionar mejores resultados.
+
+## SELECCIÓN DEL MODELO Y JUSTIFICACIÓN
+
+En el ajuste de cada uno de los modelos se han calculado las métricas sobre su rendimiento. En la siguiente tabla se muestra un resumen de tanto las métricas como el tiempo de ejecución de cada modelo.
+
+```{r}
+#vector con los nombres de las métricas
+Metric_Names <- c('Sensitivity','Specifity','Precision','Recall','F1','Accuracy',
+                 'Kappa','Time [s]')
+#vector con los nombres de los modelos
+Model_Names <- c('C5.0','Random Forest','Support Vector Machine','Logistic Regresion','K-Nearest Neighbor','Gradient Boosting','CART')
+#Se crea un dataframe con los valores de las métricas de todos los modelos
+Metric_Summary <- cbind.data.frame(C50.Metrics,RF.Metrics,LR.Metrics,SVM.Metrics,
+                        KNN.Metrics,GB.Metrics,CART.Metrics)
+#Se cambia el nombre de filas y columnas
+names(Metric_Summary) <- Model_Names
+rownames(Metric_Summary) <- Metric_Names
+#Se redondean los valores a 4 decimales
+is.num <- sapply(Metric_Summary, is.numeric)
+Metric_Summary[is.num] <- lapply(Metric_Summary[is.num], round, 4)
+Metric_Summary <- t(Metric_Summary) %>% as.data.frame()
+#Se muestra la tabla
+Metric_Summary %>% kbl() %>% kable_classic(full_width=FALSE,html_font='Cambria')
+```
+
+A continuación mostramos las conclusiones extraídas de la tabla resumen.
+
+* Todos los modelos son capaces de alcanzar valores altos de kappa, alrededor de 0.8 y las diferencias entre ellos son muy bajas, siendo la máxima diferencia menor a 0.03.
+
+* Se puede observar que los algoritmos basados en árboles funcionan bastante bien. La sencillez en la disitrbución de los datos facilita la tarea para ellos. Las regiones donde domina una marca u otra tienen forma rectangular y son fáciles de describir imponiendo condiciones sencillas en las variables salario y edad.
+
+* Si consideramos el tiempo de cálculo, los algoritmos de árbol más sencillos ofrecen grandes ventajas. Algoritmos como support vector machine o k-nearest neighbor requieren de transformaciones exponenciales que computacionalmente son menos atractivas.
+
+* La marca se pude identificar de forma sencilla mediante las variables salario y edad. Por esta razón, los algoritmos en árbol proporcionan claras ventajas: son computacionalmente más eficientes sin perder excesiva precisión en las predicciones debido a la sencillez del modelo requerido.
+
+Si damos prioridad al tiempo de cálculo, deberíamos escoger el algoritmo *CART*. Sus tiempos son, con diferencia, los más reducidos. Si priorizamos la precisión, tenemos el gradient boosting machine como algoritmo con mayores valores de precisión y kappa. Para la tarea que nos ocupa se decide dar prioridad a la precisión y se elije el algoritmo *Gradient Boosting*.
+
+## AJUSTE DEL MODELO SELECCIONADO
+
+Tras seleccionar el mejor modelo, ajustamos el modelo definitivo.
+
+### OPTIMIZACIÓN DE PARÁMETROS
+
+Recordemos los resultados obtenidos para el ajuste del modelo seleccionado:
+
+#### {.tabset .unlisted .unnumbered}
+
+##### RESUMEN GRÁFICO {.unlisted .unnumbered}
+
+```{r GBParam, fig.cap="Precisión del modelo Gradient Boosting según los parámetros del modelo."}
+#Se visualiza el ajuste del modelo seleccionado
+plot(GB.Fit)
+```
+
+##### TABLA RESUMEN {.unlisted .unnumbered}
+
+```{r}
+#Se visualiza el ajuste del modelo seleccionado
+GB.Fit
+```
+
+#### {.unlisted .unnumbered}
+
+Se observan los siguientes patrones:
+
+* *interaction.depth*: No hay cambios significativos a partir de una profundidad de 2 o mayor para un número de iteraciones de 200 o mayor.
+* *n.trees*: no hay mejora significativa a partir de 200, las curvas son prácticamente planas para estos valores.
+
+Vistos los resultados, definimos nuestra matriz de parámetros sobre los que optimizar.
+
+```{r warning=FALSE}
+# define el proceso para calcular los parámetros. En este caso se usa un cross validation de 10 particiones
+ModelSelected.Process <- trainControl(method = "repeatedcv", repeats = 1, number=5)
+# Definimos un Grid con los valores entre los que optimizar
+ModelSelected.Grid <- expand.grid(interaction.depth=c(3,4,5,6),n.trees=c(150,200,250),
+                                  shrinkage=c(0.1,0.2),n.minobsinnode = c(10,20))
+#Ajustamos el modelo
+ModelSelected.Time <- system.time(capture.output(ModelSelected.Fit <- train(Marca~., data =CR_Training, method = "gbm", trControl=ModelSelected.Process, tuneGrid=ModelSelected.Grid)))
+```
+
+Ya tenemos el modelo con los parámetros optimizados.
+
+```{r}
+sprintf('Parámetros óptimos: interaction.depth = %s, n.trees = %s, shrinkage = %s y n.minobsinnode=%s',
+        ModelSelected.Fit$bestTune[1],ModelSelected.Fit$bestTune[2][1,1],ModelSelected.Fit$bestTune[3],ModelSelected.Fit$bestTune[4])
+```
+
+### APLICACIÓN DEL MODELO
+
+El siguiente paso es aplicar dicho modelo al conjunto test para obtener las predicciones.
+
+```{r}
+#Se obtienen los valores predichos
+ModelSelected.Predictions <- predict(ModelSelected.Fit,newdata = CR_Test)
+#Se obtienen las probabilidades asociadas
+ModelSelected.Predictions_Prob <- predict(ModelSelected.Fit,newdata = CR_Test,type = 'prob') %>% apply(MARGIN = 1,FUN = max)
+```
+### FIABILIDAD DE LAS PREDICCIONES
+
+Se muestran los resultados y métricas del modelo.
+
+```{r}
+#Se obtiene la matriz de confusión
+ModelSelected.CM <- confusionMatrix(data=ModelSelected.Predictions, CR_Test$Marca)
+#se crea un dataframe que contiene predicciones y valores reales
+ModelSelected.Pred_Real <- data.frame(ModelSelected.Predictions,CR_Test$Marca,ModelSelected.Predictions_Prob)
+names(ModelSelected.Pred_Real) <- c('Predicción','Real','Probabilidad')
+```
+
+Mostramos la matriz de confusión:
+
+```{r CMGBDef, fig.cap="Matriz de Confusión para el modelo definitivo Gradient Boosting. Parámetros: interaction.depth=200, n.trees=3, shrinkage=0.1 y n.minobsinnode=10"}
+#Se muestra matriz de confusión
+draw_confusion_matrix(ModelSelected.CM,'Gradient Boosting',ModelSelected.Time[3])
+#Se guardan las métricas
+ModelSelected.Metrics <- c(ModelSelected.CM$byClass[1],ModelSelected.CM$byClass[2],ModelSelected.CM$byClass[5],
+                 ModelSelected.CM$byClass[6],ModelSelected.CM$byClass[7],ModelSelected.CM$overall[1],
+                 ModelSelected.CM$overall[2],ModelSelected.Time[3])
+```
+
+## ANÁLISIS DEL ERROR
+
+En esta sección trataremos de analizar el error que comete el modelo en la predicción de los resultados. Extraemos las muestras de la matriz de confusión y analizamos a qué perfil pertenecen.
+
+```{r Error, fig.cap="Distribución de las predicciones según salario y edad, clasificadas en basea a si se han identificado correctamente o no."}
+#Nombre variables en orden
+Variables_Name <- c('Probabilidad','Salario','Edad','Marca','Identificacion')
+#Extraemos las muestras identificadas y no identificadas debidamente
+condition <- (ModelSelected.Pred_Real['Predicción']=='Acer') & (ModelSelected.Pred_Real['Real']=='Acer')
+TP <- ModelSelected.Pred_Real[condition,c('Probabilidad')] %>% cbind(CR_Test[condition,])
+TP$Identificacion <- 'Verdadero Acer'
+names(TP) <- Variables_Name
+condition <- (ModelSelected.Pred_Real['Predicción']=='Sony') & (ModelSelected.Pred_Real['Real']=='Sony')
+TN <- ModelSelected.Pred_Real[condition,c('Probabilidad')] %>% cbind(CR_Test[condition,])
+TN$Identificacion <- 'Verdadero Sony'
+names(TN) <- Variables_Name
+condition <- (ModelSelected.Pred_Real['Predicción']=='Acer') & (ModelSelected.Pred_Real['Real']=='Sony')
+FP <- ModelSelected.Pred_Real[condition,c('Probabilidad')] %>% cbind(CR_Test[condition,])
+FP$Identificacion <- 'Falso Acer'
+names(FP) <- Variables_Name
+condition <- (ModelSelected.Pred_Real['Predicción']=='Sony') & (ModelSelected.Pred_Real['Real']=='Acer')
+FN <- ModelSelected.Pred_Real[condition,c('Probabilidad')] %>% cbind(CR_Test[condition,])
+FN$Identificacion <- 'Falso Sony'
+names(FN) <- Variables_Name
+#Creamos un dataframe con dichas muestras. Tenemos una columna adicional que identifica si esa muestra se ha identificado correctamente o no
+ModelSelected.CM_DF <- rbind(TP,TN,FP,FN)
+#Mostramos los resultados en función de los parámetros utilizados en el modelo. 
+ggplot(ModelSelected.CM_DF, aes(x=Edad,y=Salario,color=Identificacion))+
+     geom_jitter()+
+     ggtitle('Distribución de las predicciones.')+
+     theme(axis.text.y = element_text(color='black',size=10,angle=0),
+           axis.text.x = element_text(color='black',size=10,angle=0))+
+     scale_y_continuous(name="Salario",limits=c(0,160000),
+                        breaks=seq(0,160000,10000))+
+     scale_x_continuous(name="Edad",limits=c(20,80),
+                        breaks=seq(20,80,5))
+```
+
+El patrón es muy claro. Como ya vimos en el análisis exploratorio, existían unas zonas del plano formado por las variables Edad y Salario donde dominaba completamente una marca u otra. Las únicas muestras que resultan difícil de identificar son aquellas que caen en la frontera de dichas zonas. Este hecho queda muy bien reflejado en el gráfico de la figura \@ref(fig:Error). El modelo es incapaz de identificar con precisión la marca de aquellas combinaciones de edad y sueldo que quedan cerca de la frontera.
+
+Veamos también la probabilidad asociada a cada uno de los datos predichos:
+
+```{r Probabilidad, fig.cap="Probabilidad de acierto asociada a las predicciones."}
+ggplot(ModelSelected.CM_DF, aes(x=Edad,y=Salario,color=Probabilidad))+
+     geom_jitter()+
+     ggtitle('PROBABILIDAD ASOCIADA A LA DECISIÓN DEL MODELO')+
+     theme(axis.text.y = element_text(color='black',size=10,angle=0),
+           axis.text.x = element_text(color='black',size=10,angle=0))+
+     scale_y_continuous(name="Salario",limits=c(0,160000),
+                        breaks=seq(0,160000,10000))+
+     scale_x_continuous(name="Edad",limits=c(20,80),
+                        breaks=seq(20,80,5))
+```
+
+De nuevo queda en evidencia la misma conclusión. La mayoría de puntos muestran una alta probabilidad de acierto a excepción de aquellos que caen justo en la frontera de las zonas indicadas anteriormente. Estos puntos ofrecen probabilidades muy bajas, ligeramente por encima del mínimo valor de 0.5.
+
+En resumen, debemos ser cautos a la hora de predecir resultados que caigan cerca de estas fronteras ya que son fuente de error.
+
+## PREDICCIÓN DE RESULTADOS
+
+Analizado el modelo y su error asociado, ya estamos en disposición de realizar la predicción para la encuesta no completa. 
+
+Ajustamos un modelo con el conjunto de datos completo con los parámetros óptimos encontrados anteriormente:
+
+```{r}
+# Se selecciona none como método para simplemente ajustar el modelo
+Model.Process <- trainControl(method = "none", number=5)
+# Definimos un Grid con los valores óptimos del modelo seleccionado
+Model.Grid <- data.frame(interaction.depth=ModelSelected.Fit$bestTune['interaction.depth'],
+                         n.trees=ModelSelected.Fit$bestTune['n.trees'],
+                         shrinkage=ModelSelected.Fit$bestTune['shrinkage'],
+                         n.minobsinnode=ModelSelected.Fit$bestTune['n.minobsinnode'])
+#Se ajusta modelo
+Model.Time <- system.time(capture.output(Model.Fit <- train(Marca~., data =CR[Var], method = "gbm", trControl=Model.Process,tuneGrid=Model.Grid)))
+```
+
+Calculamos las predicciones:
+
+```{r}
+#Se obtienen los valores predichos
+SI$Prediccion <- predict(Model.Fit,newdata = SI[Var])
+```
+
+Visualizamos los resultados:
+
+```{r Predicciones, fig.cap="Distribución de las predicciones referentes a la encuesta incompleta.", warning=FALSE}
+#Mostramos los resultados en función de los parámetros utilizados en el modelo. 
+ggplot(SI, aes(x=Edad,y=Salario,color=Prediccion))+
+     geom_jitter()+
+     ggtitle('PREDICCIONES PARA LA ENCUESTA INCOMPLETA')+
+     theme(axis.text.y = element_text(color='black',size=10,angle=0),
+           axis.text.x = element_text(color='black',size=10,angle=0))+
+     scale_y_continuous(name="Salario",limits=c(0,160000),
+                        breaks=seq(0,160000,10000))+
+     scale_x_continuous(name="Edad",limits=c(20,80),
+                        breaks=seq(20,80,5))
+```
+
+Las predicciones siguen el mismo patrón como esperábamos.
+
+## PROBABILIDAD DE ACIERTO DE LAS PREDICCIONES
+
+Extraemos la probabilidad de cada una de las previsiones y representamos los puntos predichos coloreados según su probabilidad:
+
+```{r ProbabilidadFinal, fig.cap="Probabilidad de acierto asociado a los resultados finales para la encuesta incompleta."}
+#Se obtienen las probabilidades asociadas
+SI$Probabilidad <- predict(Model.Fit,newdata = SI,type = 'prob') %>% apply(MARGIN = 1,FUN = max)
+ggplot(SI, aes(x=Edad,y=Salario,color=Probabilidad))+
+     geom_jitter()+
+     ggtitle('PROBABILIDAD ASOCIADA A LA DECISIÓN DEL MODELO')+
+     theme(axis.text.y = element_text(color='black',size=10,angle=0),
+           axis.text.x = element_text(color='black',size=10,angle=0))+
+     scale_y_continuous(name="Salario",limits=c(0,160000),
+                        breaks=seq(0,160000,10000))+
+     scale_x_continuous(name="Edad",limits=c(20,80),
+                        breaks=seq(20,80,5))
+```
+El mapa de probabilidades se puede interpretar como la fiabilidad de las predicciones, cuanto más alta es la probabilidad, mayor fiabilidad tiene la predicción. Como ya vimos, quedan remarcadas las fronteras que separan las zonas donde dominan una u otra marca.
+
+## DIAGRAMA DE DECISIÓN
+
+Dado que el modelo seleccionado es una combinación de árboles de decisión, resulta imposible representarlo. Sin embargo, con la intención de dar una aproximación gráfica lo más fiel posible, podemos utilizar el algortimo CART para representar su árbol de decisión. La precisión del algoritmo es similar por lo que podemos considerar los resultados equivalentes.
+
+```{r Arbol, fig.cap="Diagrama de decisión. Criterio de decisión del algoritmo.", warning=FALSE}
+#Árbol de decisión del modelo CART
+rpart.plot(CART.Fit$finalModel,cex=0.6)
+```
+
+## RESUMEN DE RESULTADOS Y CONCLUSIONES
+
+Tras finalizar el análisis, podemos decir que sí somos capaces de predecir la respuesta del encuestado en un alto grado de confianza. En la mayoría de casos, somos capaces de aislar con gran precisión a colectivos de personas con las mismas preferencias de marca de ordenador en base a ciertos rangos de edad y salario.
+
+Estos rangos de edad y salario están delimitados por valores muy bien definidos y son sencillos de identificar tal y como muestra la figura \@ref(fig:MarcaSalarioEdad). Por este motivo, la mayoría de modelos ofrecen una muy buena precisión, siendo la máxima diferencia entre ellos de tan solo algunas centésimas. Sin embargo, existe una clara diferencia entre los distintos modelos, y es el coste computacional. Aquellos algoritmos más complejos que requieren de transformaciones y operaciones complejas suelen verse perjudicadas en los tiempos de cálculo.
+
+Por otro lado, la sencillez con la que se describen dichos rangos, permite a los algoritmos basados en árboles de decisión funcionar muy bien. Incluso aquellos más sencillos como el algoritmo CART se desenvuelve bien, con tiempos de cálculo muy bajos. Este sencillo proceso en la toma de decisiones queda resumido en el diagrama de la figura \@ref(fig:Arbol).
+
+En este informe se ha decidido considerar el algoritmo *Gradient Boosting Machine* para las predicciones finales. La razón es que proporcionaba una de las mejores relaciones entre precisión y tiempo de cálculo. Aún así, no había un claro algoritmo ganador y según qué criterio prioricemos, se podría haber escogido uno u otro algoritmo. El algoritmo *CART* es el que proporcionaba una mejor eficiencia en términos de coste computacional mientras que el *logistic model tree* nos daba mejor precisión global.
+
+A los buenos resultados ofrecidos por el modelo, debemos sumar que los errores cometidos por este son fácilmente identificables. Como se ha mencionado, existen unos rangos de salario y edad sencillos de identificar y que permiten tomar decisiones precisas. El problema surge cuando una muestra cae cerca de estos valores límites que definen los rangos. En este caso el modelo es incapaz de predecir con precisión a qué lado de la balanza cae la muestra. Por suerte, estos valores límites son conocidos y, por lo tanto, sabemos cuando debemos tener especial precaución con la decisión tomada por el modelo. Por lo tanto, la probabilidad de acierto del modelo queda muy bien definida también y se muestra en la figura \@ref(fig:ProbabilidadFinal).
